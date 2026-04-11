@@ -4,7 +4,7 @@ import { GestureTracker, GestureData } from './components/GestureTracker';
 import { AudioMixer } from './components/AudioMixer';
 import { SilverBackground, MetallicGrid } from './components/Y2KBackground';
 import { Hand, Info, Volume2, MoveVertical, MoveHorizontal, RotateCw, Users, Play, Pause, X, ChevronDown, ChevronUp } from 'lucide-react';
-import backgroundImg from 'figma:asset/192d1fe5335c4b0af3f1ea194624a6e0de40fed3.png';
+import backgroundImg from '@/assets/192d1fe5335c4b0af3f1ea194624a6e0de40fed3.png';
 
 export default function App() {
   const [gestureData, setGestureData] = useState<GestureData>({
