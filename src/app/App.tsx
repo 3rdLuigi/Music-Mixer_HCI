@@ -6,15 +6,20 @@ import { SilverBackground, MetallicGrid } from './components/Y2KBackground';
 import { Hand, Info, Volume2, MoveVertical, MoveHorizontal, RotateCw, Users, Play, Pause, X, ChevronDown, ChevronUp } from 'lucide-react';
 import backgroundImg from '@/assets/192d1fe5335c4b0af3f1ea194624a6e0de40fed3.png';
 
+
 export default function App() {
+  // state management
   const [gestureData, setGestureData] = useState<GestureData>({
     leftHand: null,
     rightHand: null,
     bothHandsPresent: false,
   });
+
+  // toggle webcam & tracking
   const [isTracking, setIsTracking] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
 
+  
   return (
     <div className="min-h-screen bg-black text-white overflow-hidden relative">
       {/* Background Image */}
@@ -29,6 +34,7 @@ export default function App() {
       <SilverBackground />
       <MetallicGrid />
 
+      
       {/* Chrome/Silver gradient overlay */}
       <div 
         className="fixed inset-0 pointer-events-none opacity-5"
@@ -99,6 +105,7 @@ export default function App() {
             )}
           </button>
 
+          {/* Rendering (if meets conditions) */}
           {isExpanded && (
             <motion.div
               initial={{ height: 0, opacity: 0 }}
