@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Hands, Results } from '@mediapipe/hands';
-import { Camera } from '@mediapipe/camera_utils';
+// import { Camera } from '@mediapipe/camera_utils';
+import { startCamera, isMediaPipeReady } from '../lib/Camera';
 
 export interface GestureData {
   leftHand: {
@@ -29,7 +30,7 @@ export function GestureTracker({ onGestureUpdate, isActive }: GestureTrackerProp
   const [isTracking, setIsTracking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const handsRef = useRef<Hands | null>(null);
-  const cameraRef = useRef<Camera | null>(null);
+  // const cameraRef = useRef<Camera | null>(null);
 
   // Calculate pinch distance between thumb tip and index finger tip
   const calculatePinchDistance = (landmarks: any[]) => {
@@ -171,32 +172,78 @@ export function GestureTracker({ onGestureUpdate, isActive }: GestureTrackerProp
 
     handsRef.current = hands;
 
-    const startCamera = async () => {
+    // const startCamera = async () => {
+    //   try {
+    //     const camera = new Camera(videoRef.current!, {
+    //       onFrame: async () => {
+    //         if (videoRef.current && handsRef.current) {
+    //           await handsRef.current.send({ image: videoRef.current });
+    //         }
+    //       },
+    //       width: 640,
+    //       height: 480,
+    //     });
+    //     await camera.start();
+    //     cameraRef.current = camera;
+    //     setIsTracking(true);
+    //   } catch (err) {
+    //     setError('Failed to access camera. Please grant camera permissions.');
+    //     console.error(err);
+    //   }
+    // };
+
+    // startCamera();
+
+    const startBackendSystems = async () => {
       try {
-        const camera = new Camera(videoRef.current!, {
-          onFrame: async () => {
-            if (videoRef.current && handsRef.current) {
-              await handsRef.current.send({ image: videoRef.current });
-            }
-          },
-          width: 640,
-          height: 480,
-        });
-        await camera.start();
-        cameraRef.current = camera;
+        if (!videoRef.current) return;
+
+        // start camera
+        await startCamera(videoRef.current);
         setIsTracking(true);
+
+        // end camera loop if needed
+        const processFrame = async () => {
+          if (!isActive || !videoRef.current || !canvasRef.current) return;
+
+          // allow camera to work without MediaPipe
+          const canvasCtx = canvasRef.current.getContext('2d');
+          if (canvasCtx) { 
+            canvasCtx.drawImage(videoRef.current, 0, 0, canvasRef.current.width, canvasRef.current.height);
+            // process if MediaPipe is loaded AND video has pixels
+            if (isMediaPipeReady && handsRef.current && videoRef.current.readyState === 4) {
+              try {
+                await handsRef.current.send({ image: videoRef.current });
+              } catch (err) {
+                console.warn("Skip: MediaPipe not avail.");
+              }
+            }
+          }
+
+
+          // call next frame
+          requestAnimationFrame(processFrame);
+        };
+
+        processFrame();
+        
       } catch (err) {
         setError('Failed to access camera. Please grant camera permissions.');
-        console.error(err);
+        console.error("Backend Initialization Error:", err);
       }
     };
 
-    startCamera();
+    startBackendSystems();
 
+    // return () => {
+    //   if (cameraRef.current) {
+    //     cameraRef.current.stop();
+    //   }
+    // };
+    // stop Camera if needed
     return () => {
-      if (cameraRef.current) {
-        cameraRef.current.stop();
-      }
+      setIsTracking(false);
+
     };
   }, [isActive, onGestureUpdate]);
 
