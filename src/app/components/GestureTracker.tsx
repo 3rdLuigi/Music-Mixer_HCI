@@ -1,20 +1,30 @@
 import { useEffect, useRef, useState } from 'react';
 import { Hands, Results } from '@mediapipe/hands';
-// import { Camera } from '@mediapipe/camera_utils';
-import { startCamera, isMediaPipeReady } from '../lib/Camera';
+import { Camera } from '@mediapipe/camera_utils';
+
+// Import your logic from the lib folder!
+import { calculateRotation, getHandState } from '../lib/Interactions';
 
 export interface GestureData {
   leftHand: {
     position: { x: number; y: number };
-    pinchDistance: number;
     rotation: number;
     isFist: boolean;
+    isOpen: boolean;
+    isPointerUp: boolean;
+    isPinching: boolean;
+    isPeaceSign: boolean;
+    isThumbUp: boolean;
   } | null;
   rightHand: {
     position: { x: number; y: number };
-    pinchDistance: number;
     rotation: number;
     isFist: boolean;
+    isOpen: boolean;
+    isPointerUp: boolean;
+    isPinching: boolean;
+    isPeaceSign: boolean;
+    isThumbUp: boolean;
   } | null;
   bothHandsPresent: boolean;
 }
@@ -29,42 +39,9 @@ export function GestureTracker({ onGestureUpdate, isActive }: GestureTrackerProp
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isTracking, setIsTracking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  
   const handsRef = useRef<Hands | null>(null);
-  // const cameraRef = useRef<Camera | null>(null);
-
-  // Calculate pinch distance between thumb tip and index finger tip
-  const calculatePinchDistance = (landmarks: any[]) => {
-    const thumbTip = landmarks[4];
-    const indexTip = landmarks[8];
-    const dx = thumbTip.x - indexTip.x;
-    const dy = thumbTip.y - indexTip.y;
-    return Math.sqrt(dx * dx + dy * dy);
-  };
-
-  // Calculate hand rotation based on wrist to middle finger direction
-  const calculateRotation = (landmarks: any[]) => {
-    const wrist = landmarks[0];
-    const middleFinger = landmarks[9];
-    const angle = Math.atan2(middleFinger.y - wrist.y, middleFinger.x - wrist.x);
-    return angle * (180 / Math.PI);
-  };
-
-  // Detect if hand is in fist position
-  const isFist = (landmarks: any[]) => {
-    // Check if fingertips are close to palm
-    const palmCenter = landmarks[9];
-    const fingertips = [landmarks[4], landmarks[8], landmarks[12], landmarks[16], landmarks[20]];
-    
-    let closedFingers = 0;
-    fingertips.forEach(tip => {
-      const dx = tip.x - palmCenter.x;
-      const dy = tip.y - palmCenter.y;
-      const distance = Math.sqrt(dx * dx + dy * dy);
-      if (distance < 0.15) closedFingers++;
-    });
-    
-    return closedFingers >= 3;
-  };
+  const cameraRef = useRef<Camera | null>(null);
 
   useEffect(() => {
     if (!isActive || !videoRef.current || !canvasRef.current) return;
@@ -77,183 +54,141 @@ export function GestureTracker({ onGestureUpdate, isActive }: GestureTrackerProp
 
     hands.setOptions({
       maxNumHands: 2,
-      modelComplexity: 1,
+      modelComplexity: 1, 
       minDetectionConfidence: 0.5,
       minTrackingConfidence: 0.5,
+      selfieMode: true,
     });
 
     hands.onResults((results: Results) => {
-      if (canvasRef.current) {
-        const canvasCtx = canvasRef.current.getContext('2d');
-        if (canvasCtx) {
-          canvasCtx.save();
-          canvasCtx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-          canvasCtx.drawImage(results.image, 0, 0, canvasRef.current.width, canvasRef.current.height);
+      if (!canvasRef.current) return;
+      const canvasCtx = canvasRef.current.getContext('2d');
+      if (!canvasCtx) return;
 
-          const gestureData: GestureData = {
-            leftHand: null,
-            rightHand: null,
-            bothHandsPresent: false,
+      canvasCtx.save();
+      canvasCtx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+      canvasCtx.drawImage(results.image, 0, 0, canvasRef.current.width, canvasRef.current.height);
+
+      const gestureData: GestureData = {
+        leftHand: null,
+        rightHand: null,
+        bothHandsPresent: false,
+      };
+
+      if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+        gestureData.bothHandsPresent = results.multiHandLandmarks.length === 2;
+
+        for (let i = 0; i < results.multiHandLandmarks.length; i++) {
+          const landmarks = results.multiHandLandmarks[i];
+          const handedness = results.multiHandedness[i].label;
+
+          // Draw skeleton
+          canvasCtx.strokeStyle = handedness === 'Left' ? '#c0c0c0' : '#ffffff';
+          canvasCtx.lineWidth = 2;
+          canvasCtx.shadowBlur = 10;
+          canvasCtx.shadowColor = '#ffffff';
+
+          const connections = [
+            [0, 1], [1, 2], [2, 3], [3, 4],
+            [0, 5], [5, 6], [6, 7], [7, 8],
+            [5, 9], [9, 10], [10, 11], [11, 12],
+            [9, 13], [13, 14], [14, 15], [15, 16],
+            [13, 17], [17, 18], [18, 19], [19, 20],
+            [0, 17],
+          ];
+
+          canvasCtx.beginPath();
+          connections.forEach(([start, end]) => {
+            const startLandmark = landmarks[start];
+            const endLandmark = landmarks[end];
+            canvasCtx.moveTo(startLandmark.x * canvasRef.current!.width, startLandmark.y * canvasRef.current!.height);
+            canvasCtx.lineTo(endLandmark.x * canvasRef.current!.width, endLandmark.y * canvasRef.current!.height);
+          });
+          canvasCtx.stroke();
+
+          // Draw nodes
+          landmarks.forEach((landmark, idx) => {
+            canvasCtx.fillStyle = '#ffffff';
+            canvasCtx.shadowBlur = 8;
+            canvasCtx.beginPath();
+            canvasCtx.arc(
+              landmark.x * canvasRef.current!.width,
+              landmark.y * canvasRef.current!.height,
+              idx === 4 || idx === 8 ? 6 : 4,
+              0,
+              2 * Math.PI
+            );
+            canvasCtx.fill();
+          });
+
+          // Compute gesture mappings using your imported functions!
+          const palmLandmark = landmarks[9];
+          const handState = getHandState(landmarks);
+
+          const handData = {
+            position: { x: palmLandmark.x, y: palmLandmark.y },
+            rotation: calculateRotation(landmarks),
+            isFist: handState.isFist,
+            isOpen: handState.isOpen,
+            isPointerUp: handState.isPointerUp,
+            isPinching: handState.isPinching,
+            isPeaceSign: handState.isPeaceSign,
+            isThumbUp: handState.isThumbUp,
           };
 
-          if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-            gestureData.bothHandsPresent = results.multiHandLandmarks.length === 2;
-
-            for (let i = 0; i < results.multiHandLandmarks.length; i++) {
-              const landmarks = results.multiHandLandmarks[i];
-              const handedness = results.multiHandedness[i].label;
-
-              // Draw hand skeleton with silver color
-              canvasCtx.strokeStyle = handedness === 'Left' ? '#c0c0c0' : '#ffffff';
-              canvasCtx.lineWidth = 2;
-              canvasCtx.shadowBlur = 10;
-              canvasCtx.shadowColor = '#ffffff';
-
-              // Draw connections
-              const connections = [
-                [0, 1], [1, 2], [2, 3], [3, 4],
-                [0, 5], [5, 6], [6, 7], [7, 8],
-                [5, 9], [9, 10], [10, 11], [11, 12],
-                [9, 13], [13, 14], [14, 15], [15, 16],
-                [13, 17], [17, 18], [18, 19], [19, 20],
-                [0, 17],
-              ];
-
-              canvasCtx.beginPath();
-              connections.forEach(([start, end]) => {
-                const startLandmark = landmarks[start];
-                const endLandmark = landmarks[end];
-                canvasCtx.moveTo(startLandmark.x * canvasRef.current!.width, startLandmark.y * canvasRef.current!.height);
-                canvasCtx.lineTo(endLandmark.x * canvasRef.current!.width, endLandmark.y * canvasRef.current!.height);
-              });
-              canvasCtx.stroke();
-
-              // Draw landmarks
-              landmarks.forEach((landmark, idx) => {
-                canvasCtx.fillStyle = '#ffffff';
-                canvasCtx.shadowBlur = 8;
-                canvasCtx.beginPath();
-                canvasCtx.arc(
-                  landmark.x * canvasRef.current!.width,
-                  landmark.y * canvasRef.current!.height,
-                  idx === 4 || idx === 8 ? 6 : 4, // Larger dots for thumb and index
-                  0,
-                  2 * Math.PI
-                );
-                canvasCtx.fill();
-              });
-
-              // Calculate gesture metrics
-              const palmLandmark = landmarks[9];
-              const pinchDist = calculatePinchDistance(landmarks);
-              const rotation = calculateRotation(landmarks);
-              const isFistGesture = isFist(landmarks);
-
-              const handData = {
-                position: { x: palmLandmark.x, y: palmLandmark.y },
-                pinchDistance: pinchDist,
-                rotation: rotation,
-                isFist: isFistGesture,
-              };
-
-              if (handedness === 'Left') {
-                gestureData.leftHand = handData;
-              } else {
-                gestureData.rightHand = handData;
-              }
-            }
+          if (handedness === 'Left') {
+            gestureData.leftHand = handData;
+          } else {
+            gestureData.rightHand = handData;
           }
-
-          canvasCtx.restore();
-          onGestureUpdate(gestureData);
         }
       }
+
+      canvasCtx.restore();
+      onGestureUpdate(gestureData);
     });
 
     handsRef.current = hands;
 
-    // const startCamera = async () => {
-    //   try {
-    //     const camera = new Camera(videoRef.current!, {
-    //       onFrame: async () => {
-    //         if (videoRef.current && handsRef.current) {
-    //           await handsRef.current.send({ image: videoRef.current });
-    //         }
-    //       },
-    //       width: 640,
-    //       height: 480,
-    //     });
-    //     await camera.start();
-    //     cameraRef.current = camera;
-    //     setIsTracking(true);
-    //   } catch (err) {
-    //     setError('Failed to access camera. Please grant camera permissions.');
-    //     console.error(err);
-    //   }
-    // };
-
-    // startCamera();
-
-    const startBackendSystems = async () => {
+    const startCamera = async () => {
       try {
         if (!videoRef.current) return;
-
-        // start camera
-        await startCamera(videoRef.current);
-        setIsTracking(true);
-
-        // end camera loop if needed
-        const processFrame = async () => {
-          if (!isActive || !videoRef.current || !canvasRef.current) return;
-
-          // allow camera to work without MediaPipe
-          const canvasCtx = canvasRef.current.getContext('2d');
-          if (canvasCtx) { 
-            canvasCtx.drawImage(videoRef.current, 0, 0, canvasRef.current.width, canvasRef.current.height);
-            // process if MediaPipe is loaded AND video has pixels
-            if (isMediaPipeReady && handsRef.current && videoRef.current.readyState === 4) {
-              try {
-                await handsRef.current.send({ image: videoRef.current });
-              } catch (err) {
-                console.warn("Skip: MediaPipe not avail.");
-              }
-            }
-          }
-
-
-          // call next frame
-          requestAnimationFrame(processFrame);
-        };
-
-        processFrame();
         
+        const camera = new Camera(videoRef.current, {
+          onFrame: async () => {
+            if (videoRef.current && handsRef.current) {
+              await handsRef.current.send({ image: videoRef.current });
+            }
+          },
+          width: 640,
+          height: 480,
+        });
+        
+        await camera.start();
+        cameraRef.current = camera;
+        setIsTracking(true);
       } catch (err) {
         setError('Failed to access camera. Please grant camera permissions.');
-        console.error("Backend Initialization Error:", err);
+        console.error(err);
       }
     };
 
-    startBackendSystems();
+    startCamera();
 
-    // return () => {
-    //   if (cameraRef.current) {
-    //     cameraRef.current.stop();
-    //   }
-    // };
-    // stop Camera if needed
     return () => {
       setIsTracking(false);
-
+      if (cameraRef.current) {
+        cameraRef.current.stop();
+      }
+      if (handsRef.current) {
+        handsRef.current.close();
+      }
     };
   }, [isActive, onGestureUpdate]);
 
   return (
     <div className="relative w-full h-full">
-      <video
-        ref={videoRef}
-        className="hidden"
-        playsInline
-      />
+      <video ref={videoRef} className="hidden" playsInline />
       <canvas
         ref={canvasRef}
         width={640}

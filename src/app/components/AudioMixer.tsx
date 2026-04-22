@@ -69,43 +69,68 @@ export function AudioMixer({ gestureData }: AudioMixerProps) {
     };
   }, []);
 
-  // Handle gesture-based controls
+// Handle gesture-based controls
   useEffect(() => {
-    const hand = gestureData.rightHand || gestureData.leftHand;
-    if (!hand) return;
+    if (!audioContextRef.current) return;
 
-    // Pinch distance → Volume
-    const normalizedPinch = Math.max(0, Math.min(1, hand.pinchDistance / 0.3));
-    const newVolume = normalizedPinch;
-    setVolume(newVolume);
-    if (gainNodeRef.current) {
-      gainNodeRef.current.gain.value = newVolume;
-    }
+    // Checks both hands and returns the first one performing the requested gesture
+    const getActiveHand = (condition: (hand: NonNullable<GestureData['leftHand']>) => boolean) => {
+      if (gestureData.rightHand && condition(gestureData.rightHand)) return gestureData.rightHand;
+      if (gestureData.leftHand && condition(gestureData.leftHand)) return gestureData.leftHand;
+      return null;
+    };
 
-    // Hand Y position → Pitch shift (vertical position)
-    const pitchShift = (hand.position.y - 0.5) * 24; // ±12 semitones
-    setPitch(pitchShift);
-    
-    // Hand X position → Playback speed (horizontal movement)
-    const speed = 0.5 + hand.position.x * 1.5; // 0.5x to 2x
-    setPlaybackSpeed(speed);
+    // --- PLAY / PAUSE LOGIC ---
+    const pointerHand = getActiveHand(h => h.isPointerUp);
+    const fistHand = getActiveHand(h => h.isFist);
 
-    // Hand rotation → Audio Filter
-    const normalizedRotation = ((hand.rotation + 180) % 360) / 360;
-    const newFilterFreq = 100 + normalizedRotation * 10000;
-    setFilterFreq(newFilterFreq);
-    if (filterNodeRef.current) {
-      filterNodeRef.current.frequency.value = newFilterFreq;
-    }
-
-    // Fist gesture → Play/Pause
-    if (hand.isFist && !isPlaying && audioBufferRef.current) {
+    if (pointerHand && !isPlaying && audioBufferRef.current) {
+      if (audioContextRef.current.state === 'suspended') {
+        audioContextRef.current.resume();
+      }
       handlePlayback();
-    } else if (!hand.isFist && isPlaying) {
-      // Can optionally pause on open hand
+    } else if (fistHand && isPlaying) {
+      togglePlayback();
     }
 
-  }, [gestureData]);
+    // --- VOLUME CONTROL (Pinch) ---
+    const pinchingHand = getActiveHand(h => h.isPinching);
+    if (pinchingHand) {
+      const newVolume = Math.max(0, Math.min(1, 1.0 - pinchingHand.position.y));
+      setVolume(newVolume);
+      if (gainNodeRef.current) {
+        gainNodeRef.current.gain.setTargetAtTime(newVolume, audioContextRef.current.currentTime, 0.1);
+      }
+    }
+
+    // --- PLAYBACK SPEED (Pointer Finger Up) ---
+    if (pointerHand) {
+      const speed = 0.5 + (pointerHand.position.x * 1.5); 
+      setPlaybackSpeed(speed);
+      if (sourceNodeRef.current) {
+        sourceNodeRef.current.playbackRate.setTargetAtTime(speed, audioContextRef.current.currentTime, 0.1);
+      }
+    }
+
+    // --- PITCH SHIFT (Peace Sign) ---
+    const peaceHand = getActiveHand(h => h.isPeaceSign);
+    if (peaceHand) {
+      const pitchShift = ((1.0 - peaceHand.position.y) - 0.5) * 24; 
+      setPitch(pitchShift);
+    }
+
+    // --- AUDIO FILTERS (Thumbs Up) ---
+    const thumbHand = getActiveHand(h => h.isThumbUp);
+    if (thumbHand) {
+      const rotationRatio = thumbHand.rotation / 360;
+      const newFilterFreq = 100 + (rotationRatio * 9900);
+      setFilterFreq(newFilterFreq);
+      if (filterNodeRef.current) {
+        filterNodeRef.current.frequency.setTargetAtTime(newFilterFreq, audioContextRef.current.currentTime, 0.1);
+      }
+    }
+
+  }, [gestureData, isPlaying]);
 
   // Two hands → Echo/Reverb
   useEffect(() => {

@@ -114,24 +114,30 @@ export default function App() {
               transition={{ duration: 0.3 }}
               className="px-4 pb-4"
             >
-              <ul className="text-sm space-y-2 text-gray-400 pl-9" style={{ fontFamily: 'Arial, sans-serif' }}>
+              <ul className="text-sm space-y-3 text-gray-400 pl-9" style={{ fontFamily: 'Arial, sans-serif' }}>
                 <li className="flex items-center gap-2">
-                  <Volume2 className="w-4 h-4" /> <strong>Pinch (thumb-index)</strong> → Volume control
+                  <Volume2 className="w-4 h-4 text-blue-400" /> 
+                  <strong>Pinch + Move Up/Down</strong> → Volume control
                 </li>
                 <li className="flex items-center gap-2">
-                  <MoveVertical className="w-4 h-4" /> <strong>Hand position (vertical)</strong> → Pitch shift
+                  <Play className="w-4 h-4 text-green-400" /> 
+                  <strong>Pointer Finger + Move Left/Right</strong> → Play / Playback speed
                 </li>
                 <li className="flex items-center gap-2">
-                  <MoveHorizontal className="w-4 h-4" /> <strong>Horizontal movement</strong> → Playback speed
+                  <MoveVertical className="w-4 h-4 text-purple-400" /> 
+                  <strong>Peace Sign + Move Up/Down</strong> → Pitch shift
                 </li>
                 <li className="flex items-center gap-2">
-                  <RotateCw className="w-4 h-4" /> <strong>Hand rotation</strong> → Audio filters
+                  <RotateCw className="w-4 h-4 text-orange-400" /> 
+                  <strong>Thumbs Up + Rotate</strong> → Audio filters
                 </li>
                 <li className="flex items-center gap-2">
-                  <Users className="w-4 h-4" /> <strong>Two hands</strong> → Echo/reverb effects
+                  <Pause className="w-4 h-4 text-red-400" /> 
+                  <strong>Closed Fist</strong> → Pause playback
                 </li>
                 <li className="flex items-center gap-2">
-                  <Play className="w-4 h-4" /> <strong>Closed fist</strong> → Play | <Pause className="w-4 h-4 inline" /> <strong>Open hand</strong> → Pause
+                  <Users className="w-4 h-4 text-teal-400" /> 
+                  <strong>Two hands present</strong> → Echo & Reverb effects
                 </li>
               </ul>
             </motion.div>
