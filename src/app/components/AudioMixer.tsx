@@ -30,6 +30,9 @@ export function AudioMixer({ gestureData }: AudioMixerProps) {
   const convolverRef = useRef<ConvolverNode | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
+  const isPlayingRef = useRef(false); // TRACK PLAYBACK STATE
+  const wasPointerHandRef = useRef(false); 
+  const wasFistHandRef = useRef(false);
 
   // Initialize audio context
   useEffect(() => {
@@ -84,12 +87,18 @@ export function AudioMixer({ gestureData }: AudioMixerProps) {
     const pointerHand = getActiveHand(h => h.isPointerUp);
     const fistHand = getActiveHand(h => h.isFist);
 
-    if (pointerHand && !isPlaying && audioBufferRef.current) {
+    const isPointerJustUp = pointerHand && !wasPointerHandRef.current;
+    const isFistJustClosed = fistHand && !wasFistHandRef.current;
+
+    wasPointerHandRef.current = !!pointerHand;
+    wasFistHandRef.current = !!fistHand;
+
+    if (isPointerJustUp && !isPlayingRef.current && audioBufferRef.current) {
       if (audioContextRef.current.state === 'suspended') {
         audioContextRef.current.resume();
       }
       handlePlayback();
-    } else if (fistHand && isPlaying) {
+    } else if (isFistJustClosed && isPlayingRef.current) {
       togglePlayback();
     }
 
@@ -142,9 +151,26 @@ export function AudioMixer({ gestureData }: AudioMixerProps) {
     }
   }, [gestureData.bothHandsPresent]);
 
+
+  // SECTION OF CODE FOR FILE UPLOAD
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file && audioContextRef.current) {
+
+      // Stop current playback if any !!!
+      if(sourceNodeRef.current) { 
+        sourceNodeRef.current.onended = null;
+        try { 
+          sourceNodeRef.current.stop();
+        } catch (e) { 
+          // do nothing
+        }
+      }
+
+      setIsPlaying(false);
+      isPlayingRef.current = false;
+      setCurrentTime(0);
+
       setAudioFile(file);
       const arrayBuffer = await file.arrayBuffer();
       const audioBuffer = await audioContextRef.current.decodeAudioData(arrayBuffer);
@@ -152,13 +178,34 @@ export function AudioMixer({ gestureData }: AudioMixerProps) {
     }
   };
 
+  // SECTION OF CODE FOR PLAYBACK CONTROL
   const handlePlayback = () => {
     if (!audioBufferRef.current || !audioContextRef.current) return;
 
+    // STOP AUDIO
     if (isPlaying && sourceNodeRef.current) {
-      sourceNodeRef.current.stop();
+      try { 
+        sourceNodeRef.current.onended = null;
+        sourceNodeRef.current.stop();
+      } catch (e) { 
+
+      }
       setIsPlaying(false);
+      isPlayingRef.current = false;
       return;
+    }
+
+    // stop any extra audio playing 
+    if (sourceNodeRef.current) { 
+      sourceNodeRef.current.onended = null;
+
+      try { 
+        sourceNodeRef.current.stop();
+      }
+      catch (e) {
+
+      }
+
     }
 
     const source = audioContextRef.current.createBufferSource();
@@ -182,12 +229,21 @@ export function AudioMixer({ gestureData }: AudioMixerProps) {
     gainNodeRef.current!.connect(analyserRef.current!);
     analyserRef.current!.connect(audioContextRef.current.destination);
     
-    source.onended = () => setIsPlaying(false);
+    // if trakc naturally ends
+    source.onended = () => { 
+      setIsPlaying(false);
+      isPlayingRef.current = false;
+    };
+
     source.start();
     sourceNodeRef.current = source;
+
+    // lock
     setIsPlaying(true);
+    isPlayingRef.current = true;
     setStartTime(audioContextRef.current.currentTime);
   };
+
 
   const togglePlayback = () => {
     handlePlayback();
