@@ -202,7 +202,13 @@ export function AudioMixer({ gestureData }: AudioMixerProps) {
     setHasEcho(shouldHaveEcho);
     
     if (delayGainRef.current) {
-      delayGainRef.current.gain.value = shouldHaveEcho ? 0.4 : 0;
+      delayGainRef.current.gain.setTargetAtTime( 
+        // prevent jarring effect from sudden echo
+        shouldHaveEcho ? 0.8 : 0, 
+        audioContextRef.current.currentTime,
+        0.1
+      );
+
     }
   }, [gestureData.bothHandsPresent]);
 
