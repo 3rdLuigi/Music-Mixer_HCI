@@ -17,7 +17,6 @@ export function AudioMixer({ gestureData }: AudioMixerProps) {
   const [filterFreq, setFilterFreq] = useState(1000);
   const [hasEcho, setHasEcho] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
-  const [startTime, setStartTime] = useState(0);
   
   const audioContextRef = useRef<AudioContext | null>(null);
   const audioBufferRef = useRef<AudioBuffer | null>(null);
@@ -31,10 +30,13 @@ export function AudioMixer({ gestureData }: AudioMixerProps) {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
   const isPlayingRef = useRef(false); // TRACK PLAYBACK STATE
-  const wasPointerHandRef = useRef(false); 
-  const wasFistHandRef = useRef(false);
+  const wasPointerHandRef = useRef(false); // Pointer finger state
+  const wasFistHandRef = useRef(false); // Fist state
   const lastActionTimeRef = useRef(0); // For cooldown management
-  const pausedTimeRef = useRef(0);
+  const pausedTimeRef = useRef(0); // To track pause time for resuming
+  // FOR PLAYBACK VISUALS
+  const playbackSpeedRef = useRef(1.0);
+  const lastFrameTimeRef = useRef(0);
   
 
   // Initialize audio context
@@ -171,6 +173,11 @@ export function AudioMixer({ gestureData }: AudioMixerProps) {
     if (speedHand) {
       const speed = 0.5 + (speedHand.position.x * 1.5); 
       setPlaybackSpeed(speed);
+
+      // adjust visual speed
+      playbackSpeedRef.current = speed;
+
+      // adjust audio speed
       if (sourceNodeRef.current) {
         sourceNodeRef.current.playbackRate.setTargetAtTime(speed, audioContextRef.current.currentTime, 0.1);
       }
@@ -263,8 +270,8 @@ export function AudioMixer({ gestureData }: AudioMixerProps) {
     }
 
     // SAVE TIME OF PAUSE 
-    if (audioContextRef.current && isPlayingRef.current) { 
-      pausedTimeRef.current = audioContextRef.current.currentTime - startTime;
+    if (isPlayingRef.current) { 
+      pausedTimeRef.current = currentTime;
     }
 
     setIsPlaying(false);
@@ -322,7 +329,8 @@ export function AudioMixer({ gestureData }: AudioMixerProps) {
     isPlayingRef.current = true;
 
     // sync visuals 
-    setStartTime(audioContextRef.current.currentTime - offset);
+    // setStartTime(audioContextRef.current.currentTime - offset);
+    setCurrentTime(offset);
   };
 
   const togglePlayback = () => { 
@@ -402,24 +410,57 @@ export function AudioMixer({ gestureData }: AudioMixerProps) {
   // };
 
   // Update current time for waveform
-  useEffect(() => {
-    let animationFrameId: number;
-    const updateTime = () => {
+
+  useEffect(() => { 
+
+    let animationFrameId: number; 
+
+    const updateTime = () => { 
       if (isPlaying && audioContextRef.current) {
-        const elapsed = audioContextRef.current.currentTime - startTime;
-        setCurrentTime(elapsed);
+        const timeNow = audioContextRef.current.currentTime;
+
+        // calculate time passed since last frame
+        const delta = timeNow - lastFrameTimeRef.current;
+        lastFrameTimeRef.current = timeNow;
+
+        // update current time with delta, accounting for playback speed
+        setCurrentTime(prevTime => prevTime + (delta * playbackSpeedRef.current));
         animationFrameId = requestAnimationFrame(updateTime);
       }
     };
-    if (isPlaying) {
+
+    if (isPlaying) { 
+      // sync last frame to play
+      if (audioContextRef.current) {
+        lastFrameTimeRef.current = audioContextRef.current.currentTime;
+      }
       animationFrameId = requestAnimationFrame(updateTime);
     }
-    return () => {
-      if (animationFrameId) {
-        cancelAnimationFrame(animationFrameId);
-      }
+
+    return () => { 
+      if (animationFrameId) cancelAnimationFrame(animationFrameId);
     };
-  }, [isPlaying, startTime]);
+
+  }, [isPlaying]);
+
+  // useEffect(() => {
+  //   let animationFrameId: number;
+  //   const updateTime = () => {
+  //     if (isPlaying && audioContextRef.current) {
+  //       const elapsed = audioContextRef.current.currentTime - startTime;
+  //       setCurrentTime(elapsed);
+  //       animationFrameId = requestAnimationFrame(updateTime);
+  //     }
+  //   };
+  //   if (isPlaying) {
+  //     animationFrameId = requestAnimationFrame(updateTime);
+  //   }
+  //   return () => {
+  //     if (animationFrameId) {
+  //       cancelAnimationFrame(animationFrameId);
+  //     }
+  //   };
+  // }, [isPlaying, startTime]);
 
   const handleDownload = async () => {
     if (!audioBufferRef.current || !audioContextRef.current) return;
