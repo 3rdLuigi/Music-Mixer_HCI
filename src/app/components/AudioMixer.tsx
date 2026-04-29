@@ -135,16 +135,22 @@ export function AudioMixer({ gestureData }: AudioMixerProps) {
             audioContextRef.current.resume();
           }
           playAudio();
-          lastActionTimeRef.current = now; 
+          lastActionTimeRef.current = now + 1500; 
         }
       }
-      // PAUSE 
-      else if (isFistJustClosed && !isPointerJustUp && isPlayingRef.current) { 
-        if (fistHand && isSafelyInFrame(fistHand)) { 
+      else if (isFistJustClosed && !isPointerJustUp) { 
+        // PAUSE
+        if (fistHand && isSafelyInFrame(fistHand) && isPlayingRef.current) { 
           stopAudio();
-          lastActionTimeRef.current = now;
+          lastActionTimeRef.current = now + 1500;
+      
+        } else if (audioBufferRef.current && !isPlayingRef.current) { 
+          // RESTART
+          pausedTimeRef.current = 0;
+          setCurrentTime(0);
+          lastActionTimeRef.current = now + 1500;
         }
-      }
+       }
     }
 
     // mixing logic allows each hand to only control one mixing parameter at a time
