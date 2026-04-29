@@ -63,8 +63,9 @@ export function AudioMixer({ gestureData }: AudioMixerProps) {
     const impulseR = impulse.getChannelData(1);
     
     for (let i = 0; i < impulseLength; i++) {
-      impulseL[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / impulseLength, 2);
-      impulseR[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / impulseLength, 2);
+      const decay = Math.pow(1-i / impulseLength, 2);
+      impulseL[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / impulseLength, 2) * decay * 0.05;
+      impulseR[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / impulseLength, 2) * decay * 0.05;
     }
     convolverRef.current.buffer = impulse;
 
@@ -180,14 +181,22 @@ export function AudioMixer({ gestureData }: AudioMixerProps) {
     if (peaceHand) {
       const pitchShift = ((1.0 - peaceHand.position.y) - 0.5) * 24; 
       setPitch(pitchShift);
+
+      // shift pitch 
+      if (sourceNodeRef.current && audioContextRef.current) { 
+        sourceNodeRef.current.detune.setTargetAtTime(pitchShift * 100, audioContextRef.current.currentTime, 0.1);
+      }
     }
 
     // Thumbs up & rotate for filter (prio 4)
     const thumbHand = getExclusiveHand(h => h.isThumbUp);
     if (thumbHand) {
-      const rotationRatio = thumbHand.rotation / 360;
+      // prevent NaN and out of bounds rotations...
+      const clampedRotation = Math.max(0, Math.min(360, Math.abs(thumbHand.rotation)));
+      const rotationRatio = clampedRotation / 360;
       const newFilterFreq = 100 + (rotationRatio * 9900);
       setFilterFreq(newFilterFreq);
+
       if (filterNodeRef.current) {
         filterNodeRef.current.frequency.setTargetAtTime(newFilterFreq, audioContextRef.current.currentTime, 0.1);
       }
