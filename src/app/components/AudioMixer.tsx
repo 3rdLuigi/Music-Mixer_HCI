@@ -33,6 +33,8 @@ export function AudioMixer({ gestureData }: AudioMixerProps) {
   const isPlayingRef = useRef(false); // TRACK PLAYBACK STATE
   const wasPointerHandRef = useRef(false); 
   const wasFistHandRef = useRef(false);
+  const lastActionTimeRef = useRef(0); // For cooldown management
+  const handModesRef = useRef<{ left: string | null; right: string | null }>({ left: null, right: null }); // To track which hand is controlling what
 
   // Initialize audio context
   useEffect(() => {
@@ -73,17 +75,35 @@ export function AudioMixer({ gestureData }: AudioMixerProps) {
   }, []);
 
 // Handle gesture-based controls
+  // for Echo/Reverb toggle but ALSO to prevent one hand controlling several 
+  // parameters simultaneously if both hands are up
   useEffect(() => {
     if (!audioContextRef.current) return;
 
-    // Checks both hands and returns the first one performing the requested gesture
+    // checks if 
     const getActiveHand = (condition: (hand: NonNullable<GestureData['leftHand']>) => boolean) => {
       if (gestureData.rightHand && condition(gestureData.rightHand)) return gestureData.rightHand;
       if (gestureData.leftHand && condition(gestureData.leftHand)) return gestureData.leftHand;
       return null;
     };
 
-    // --- PLAY / PAUSE LOGIC ---
+    // checks if both hands are present
+    const usedHandsThisFrame = new Set<string>();
+    const getExclusiveHand = (condition: (hand: NonNullable<GestureData['leftHand']>) => boolean) => {
+      // check conditions of right hand and if being used
+      if (gestureData.rightHand && !usedHandsThisFrame.has('right') && condition(gestureData.rightHand)) {
+        usedHandsThisFrame.add('right');
+        return gestureData.rightHand;
+      }
+      // check if leftr hand being used
+      if (gestureData.leftHand && !usedHandsThisFrame.has('left') && condition(gestureData.leftHand)) {
+        usedHandsThisFrame.add('left');
+        return gestureData.leftHand;
+      }
+      return null;
+    };
+
+    // play and pause logic
     const pointerHand = getActiveHand(h => h.isPointerUp);
     const fistHand = getActiveHand(h => h.isFist);
 
@@ -93,17 +113,43 @@ export function AudioMixer({ gestureData }: AudioMixerProps) {
     wasPointerHandRef.current = !!pointerHand;
     wasFistHandRef.current = !!fistHand;
 
-    if (isPointerJustUp && !isPlayingRef.current && audioBufferRef.current) {
-      if (audioContextRef.current.state === 'suspended') {
-        audioContextRef.current.resume();
+    const now = Date.now();
+    const cooldown = 500; 
+
+    const isSafelyInFrame = (hand: NonNullable<GestureData['leftHand']>) => {
+      const margin = 0.05; 
+      return ( 
+        hand.position.x > margin && 
+        hand.position.x < (1 - margin) && 
+        hand.position.y > margin && 
+        hand.position.y < (1 - margin)
+      );
+    };
+
+    if(now - lastActionTimeRef.current > cooldown) { 
+      // PLAY 
+      if (isPointerJustUp && !isPlayingRef.current && audioBufferRef.current) {
+        if (pointerHand && isSafelyInFrame(pointerHand)) { 
+          if (audioContextRef.current.state === 'suspended') { 
+            audioContextRef.current.resume();
+          }
+          handlePlayback();
+          lastActionTimeRef.current = now; 
+        }
       }
-      handlePlayback();
-    } else if (isFistJustClosed && isPlayingRef.current) {
-      togglePlayback();
+      // PAUSE 
+      else if (isFistJustClosed && !isPointerJustUp && isPlayingRef.current) { 
+        if (fistHand && isSafelyInFrame(fistHand)) { 
+          togglePlayback();
+          lastActionTimeRef.current = now;
+        }
+      }
     }
 
-    // --- VOLUME CONTROL (Pinch) ---
-    const pinchingHand = getActiveHand(h => h.isPinching);
+    // mixing logic allows each hand to only control one mixing parameter at a time
+
+    // pinch for volume (prio 1)
+    const pinchingHand = getExclusiveHand(h => h.isPinching);
     if (pinchingHand) {
       const newVolume = Math.max(0, Math.min(1, 1.0 - pinchingHand.position.y));
       setVolume(newVolume);
@@ -112,24 +158,25 @@ export function AudioMixer({ gestureData }: AudioMixerProps) {
       }
     }
 
-    // --- PLAYBACK SPEED (Pointer Finger Up) ---
-    if (pointerHand) {
-      const speed = 0.5 + (pointerHand.position.x * 1.5); 
+    // pointer finger for playback speed (prio 2)
+    const speedHand = getExclusiveHand(h => h.isPointerUp);
+    if (speedHand) {
+      const speed = 0.5 + (speedHand.position.x * 1.5); 
       setPlaybackSpeed(speed);
       if (sourceNodeRef.current) {
         sourceNodeRef.current.playbackRate.setTargetAtTime(speed, audioContextRef.current.currentTime, 0.1);
       }
     }
 
-    // --- PITCH SHIFT (Peace Sign) ---
-    const peaceHand = getActiveHand(h => h.isPeaceSign);
+    // pitch shift for peach sign ( prio 3)
+    const peaceHand = getExclusiveHand(h => h.isPeaceSign);
     if (peaceHand) {
       const pitchShift = ((1.0 - peaceHand.position.y) - 0.5) * 24; 
       setPitch(pitchShift);
     }
 
-    // --- AUDIO FILTERS (Thumbs Up) ---
-    const thumbHand = getActiveHand(h => h.isThumbUp);
+    // Thumbs up & rotate for filter (prio 4)
+    const thumbHand = getExclusiveHand(h => h.isThumbUp);
     if (thumbHand) {
       const rotationRatio = thumbHand.rotation / 360;
       const newFilterFreq = 100 + (rotationRatio * 9900);
@@ -143,6 +190,7 @@ export function AudioMixer({ gestureData }: AudioMixerProps) {
 
   // Two hands → Echo/Reverb
   useEffect(() => {
+
     const shouldHaveEcho = gestureData.bothHandsPresent;
     setHasEcho(shouldHaveEcho);
     
@@ -183,7 +231,7 @@ export function AudioMixer({ gestureData }: AudioMixerProps) {
     if (!audioBufferRef.current || !audioContextRef.current) return;
 
     // STOP AUDIO
-    if (isPlaying && sourceNodeRef.current) {
+    if (isPlayingRef.current && sourceNodeRef.current) {
       try { 
         sourceNodeRef.current.onended = null;
         sourceNodeRef.current.stop();
@@ -229,7 +277,7 @@ export function AudioMixer({ gestureData }: AudioMixerProps) {
     gainNodeRef.current!.connect(analyserRef.current!);
     analyserRef.current!.connect(audioContextRef.current.destination);
     
-    // if trakc naturally ends
+    // if track naturally ends
     source.onended = () => { 
       setIsPlaying(false);
       isPlayingRef.current = false;
@@ -546,6 +594,7 @@ export function AudioMixer({ gestureData }: AudioMixerProps) {
               : 'bg-black/60 border-gray-700'
           }`}
         >
+          
           <div className="text-sm text-gray-400" style={{ fontFamily: 'Times New Roman', fontStyle: 'italic' }}>
             Right Hand
           </div>
@@ -560,6 +609,7 @@ export function AudioMixer({ gestureData }: AudioMixerProps) {
               : 'bg-black/60 border-gray-700'
           }`}
         >
+          {/* // indicates both hands are present */}
           <div className="text-sm text-gray-400" style={{ fontFamily: 'Times New Roman', fontStyle: 'italic' }}>
             Both Hands
           </div>
