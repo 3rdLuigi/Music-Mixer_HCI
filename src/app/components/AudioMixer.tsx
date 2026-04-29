@@ -34,7 +34,8 @@ export function AudioMixer({ gestureData }: AudioMixerProps) {
   const wasPointerHandRef = useRef(false); 
   const wasFistHandRef = useRef(false);
   const lastActionTimeRef = useRef(0); // For cooldown management
-  const handModesRef = useRef<{ left: string | null; right: string | null }>({ left: null, right: null }); // To track which hand is controlling what
+  const pausedTimeRef = useRef(0);
+  
 
   // Initialize audio context
   useEffect(() => {
@@ -133,14 +134,14 @@ export function AudioMixer({ gestureData }: AudioMixerProps) {
           if (audioContextRef.current.state === 'suspended') { 
             audioContextRef.current.resume();
           }
-          handlePlayback();
+          playAudio();
           lastActionTimeRef.current = now; 
         }
       }
       // PAUSE 
       else if (isFistJustClosed && !isPointerJustUp && isPlayingRef.current) { 
         if (fistHand && isSafelyInFrame(fistHand)) { 
-          togglePlayback();
+          stopAudio();
           lastActionTimeRef.current = now;
         }
       }
@@ -218,6 +219,7 @@ export function AudioMixer({ gestureData }: AudioMixerProps) {
       setIsPlaying(false);
       isPlayingRef.current = false;
       setCurrentTime(0);
+      pausedTimeRef.current = 0;
 
       setAudioFile(file);
       const arrayBuffer = await file.arrayBuffer();
@@ -227,75 +229,156 @@ export function AudioMixer({ gestureData }: AudioMixerProps) {
   };
 
   // SECTION OF CODE FOR PLAYBACK CONTROL
-  const handlePlayback = () => {
-    if (!audioBufferRef.current || !audioContextRef.current) return;
 
-    // STOP AUDIO
-    if (isPlayingRef.current && sourceNodeRef.current) {
-      try { 
-        sourceNodeRef.current.onended = null;
-        sourceNodeRef.current.stop();
-      } catch (e) { 
-
-      }
-      setIsPlaying(false);
-      isPlayingRef.current = false;
-      return;
-    }
-
-    // stop any extra audio playing 
+  const stopAudio = () => { 
     if (sourceNodeRef.current) { 
       sourceNodeRef.current.onended = null;
-
       try { 
-        sourceNodeRef.current.stop();
+        sourceNodeRef.current.stop(); 
       }
       catch (e) {
-
+        
       }
-
     }
+
+    // SAVE TIME OF PAUSE 
+    if (audioContextRef.current && isPlayingRef.current) { 
+      pausedTimeRef.current = audioContextRef.current.currentTime - startTime;
+    }
+
+    setIsPlaying(false);
+    isPlayingRef.current = false;
+
+
+  };
+
+  const playAudio = () => {
+
+    // prevent multiple audios
+    if (!audioBufferRef.current || !audioContextRef.current) return;
+    if (isPlayingRef.current) return;
+
+    if (audioContextRef.current.state === 'suspended') { 
+      audioContextRef.current.resume();
+    }
+
+    stopAudio(); 
 
     const source = audioContextRef.current.createBufferSource();
     source.buffer = audioBufferRef.current;
-    
-    // Apply playback speed
-    source.playbackRate.value = playbackSpeed;
-    
+    source.playbackRate.value = playbackSpeed; 
+
+
     // Connect audio graph
     source.connect(filterNodeRef.current!);
     filterNodeRef.current!.connect(gainNodeRef.current!);
-    
-    // Echo/reverb routing
     gainNodeRef.current!.connect(delayNodeRef.current!);
     delayNodeRef.current!.connect(delayGainRef.current!);
-    delayGainRef.current!.connect(gainNodeRef.current!); // Feedback loop
-    
+    delayGainRef.current!.connect(gainNodeRef.current!); 
     gainNodeRef.current!.connect(convolverRef.current!);
     convolverRef.current!.connect(analyserRef.current!);
-    
     gainNodeRef.current!.connect(analyserRef.current!);
     analyserRef.current!.connect(audioContextRef.current.destination);
-    
-    // if track naturally ends
+
+    // TRACK NATURALLY FINISHES
     source.onended = () => { 
-      setIsPlaying(false);
+      setIsPlaying(false); 
       isPlayingRef.current = false;
+      pausedTimeRef.current = 0; 
+      setCurrentTime(0);
     };
 
-    source.start();
+    // calculate offset
+    let offset = pausedTimeRef.current % audioBufferRef.current.duration;
+    if (isNaN(offset)) offset = 0;
+
+    // resume from offset
+    source.start(0, offset);
     sourceNodeRef.current = source;
 
-    // lock
+    //unpause
     setIsPlaying(true);
     isPlayingRef.current = true;
-    setStartTime(audioContextRef.current.currentTime);
+
+    // sync visuals 
+    setStartTime(audioContextRef.current.currentTime - offset);
   };
 
+  const togglePlayback = () => { 
+    if (isPlayingRef.current) stopAudio(); 
+    else playAudio();
+  }
 
-  const togglePlayback = () => {
-    handlePlayback();
-  };
+
+  // const handlePlayback = () => {
+  //   if (!audioBufferRef.current || !audioContextRef.current) return;
+
+  //   // PAUSE AUDIO
+  //   if (isPlayingRef.current && sourceNodeRef.current) {
+  //     try { 
+  //       sourceNodeRef.current.onended = null;
+  //       sourceNodeRef.current.stop();
+  //     } catch (e) { 
+
+  //     }
+  //     setIsPlaying(false);
+  //     isPlayingRef.current = false;
+  //     return;
+  //   }
+
+  //   // stop any extra audio playing 
+  //   if (sourceNodeRef.current) { 
+  //     sourceNodeRef.current.onended = null;
+
+  //     try { 
+  //       sourceNodeRef.current.stop();
+  //     }
+  //     catch (e) {
+
+  //     }
+
+  //   }
+
+  //   const source = audioContextRef.current.createBufferSource();
+  //   source.buffer = audioBufferRef.current;
+    
+  //   // Apply playback speed
+  //   source.playbackRate.value = playbackSpeed;
+    
+  //   // Connect audio graph
+  //   source.connect(filterNodeRef.current!);
+  //   filterNodeRef.current!.connect(gainNodeRef.current!);
+    
+  //   // Echo/reverb routing
+  //   gainNodeRef.current!.connect(delayNodeRef.current!);
+  //   delayNodeRef.current!.connect(delayGainRef.current!);
+  //   delayGainRef.current!.connect(gainNodeRef.current!); // Feedback loop
+    
+  //   gainNodeRef.current!.connect(convolverRef.current!);
+  //   convolverRef.current!.connect(analyserRef.current!);
+    
+  //   gainNodeRef.current!.connect(analyserRef.current!);
+  //   analyserRef.current!.connect(audioContextRef.current.destination);
+    
+  //   // if track naturally ends
+  //   source.onended = () => { 
+  //     setIsPlaying(false);
+  //     isPlayingRef.current = false;
+  //   };
+
+  //   source.start();
+  //   sourceNodeRef.current = source;
+
+  //   // lock
+  //   setIsPlaying(true);
+  //   isPlayingRef.current = true;
+  //   setStartTime(audioContextRef.current.currentTime);
+  // };
+
+
+  // const togglePlayback = () => {
+  //   handlePlayback();
+  // };
 
   // Update current time for waveform
   useEffect(() => {

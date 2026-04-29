@@ -82,7 +82,7 @@ export function AudioWaveform({ audioBuffer, isPlaying, currentTime = 0 }: Audio
         const playProgress = currentTime / audioBuffer.duration;
         const barProgress = index / normalizedData.length;
         
-        if (barProgress <= playProgress && isPlaying) {
+        if (barProgress <= playProgress) {
           // Played portion - white/silver glow
           barGradient.addColorStop(0, 'rgba(255, 255, 255, 0.9)');
           barGradient.addColorStop(0.5, 'rgba(192, 192, 192, 0.8)');
@@ -105,7 +105,7 @@ export function AudioWaveform({ audioBuffer, isPlaying, currentTime = 0 }: Audio
       });
 
       // Draw playhead
-      if (isPlaying) {
+      if (currentTime > 0 && currentTime <= audioBuffer.duration) {
         const playheadX = (currentTime / audioBuffer.duration) * rect.width;
         ctx.shadowBlur = 15;
         ctx.shadowColor = 'rgba(255, 255, 255, 0.9)';
