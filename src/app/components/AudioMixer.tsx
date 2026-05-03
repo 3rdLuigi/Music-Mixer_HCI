@@ -27,16 +27,17 @@ export function AudioMixer({ gestureData }: AudioMixerProps) {
   const delayNodeRef = useRef<DelayNode | null>(null);
   const delayGainRef = useRef<GainNode | null>(null);
   const convolverRef = useRef<ConvolverNode | null>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const recordedChunksRef = useRef<Blob[]>([]);
   const isPlayingRef = useRef(false); // TRACK PLAYBACK STATE
   const wasPointerHandRef = useRef(false); // Pointer finger state
   const wasFistHandRef = useRef(false); // Fist state
   const lastActionTimeRef = useRef(0); // For cooldown management
-  const pausedTimeRef = useRef(0); // To track pause time for resuming
   // FOR PLAYBACK VISUALS
   const playbackSpeedRef = useRef(1.0);
-  const lastFrameTimeRef = useRef(0);
+
+  // const lastFrameTimeRef = useRef(0);
+  const pitchRef = useRef(0);
+  const anchorAudioTimeRef = useRef(0);
+  const anchorRealTimeRef = useRef(0); 
   
 
   // Initialize audio context
@@ -149,22 +150,26 @@ export function AudioMixer({ gestureData }: AudioMixerProps) {
       
         } else if (audioBufferRef.current && !isPlayingRef.current) { 
           // RESTART
-          pausedTimeRef.current = 0;
+          // pausedTimeRef.current = 0;
           setCurrentTime(0);
           lastActionTimeRef.current = now + 1500;
         }
        }
     }
+    
+
 
     // mixing logic allows each hand to only control one mixing parameter at a time
-
     // pinch for volume (prio 1)
     const pinchingHand = getExclusiveHand(h => h.isPinching);
     if (pinchingHand) {
       const newVolume = Math.max(0, Math.min(1, 1.0 - pinchingHand.position.y));
-      setVolume(newVolume);
-      if (gainNodeRef.current) {
-        gainNodeRef.current.gain.setTargetAtTime(newVolume, audioContextRef.current.currentTime, 0.1);
+      if (Math.abs(newVolume - volume) > 0.02) { 
+        setVolume(newVolume);
+        if (gainNodeRef.current) {
+          gainNodeRef.current.gain.setTargetAtTime(newVolume, audioContextRef.current.currentTime, 0.1);
+        }
+
       }
     }
 
@@ -172,26 +177,31 @@ export function AudioMixer({ gestureData }: AudioMixerProps) {
     const speedHand = getExclusiveHand(h => h.isPointerUp);
     if (speedHand) {
       const speed = 0.5 + (speedHand.position.x * 1.5); 
-      setPlaybackSpeed(speed);
 
-      // adjust visual speed
-      playbackSpeedRef.current = speed;
+      if (Math.abs(speed - playbackSpeedRef.current) > 0.02) { 
+        updateAudioAnchor();
 
-      // adjust audio speed
-      if (sourceNodeRef.current) {
-        sourceNodeRef.current.playbackRate.setTargetAtTime(speed, audioContextRef.current.currentTime, 0.1);
+        setPlaybackSpeed(speed);
+        playbackSpeedRef.current = speed;
+        if (sourceNodeRef.current) { 
+          sourceNodeRef.current.playbackRate.value = speed;
+        }
       }
+
     }
 
     // pitch shift for peach sign ( prio 3)
     const peaceHand = getExclusiveHand(h => h.isPeaceSign);
     if (peaceHand) {
       const pitchShift = ((1.0 - peaceHand.position.y) - 0.5) * 24; 
-      setPitch(pitchShift);
+      if (Math.abs(pitchShift - pitchRef.current) > 0.5) { 
+        updateAudioAnchor();
 
-      // shift pitch 
-      if (sourceNodeRef.current && audioContextRef.current) { 
-        sourceNodeRef.current.detune.setTargetAtTime(pitchShift * 100, audioContextRef.current.currentTime, 0.1);
+        setPitch(pitchShift);
+        pitchRef.current = pitchShift;
+        if (sourceNodeRef.current && audioContextRef.current) { 
+          sourceNodeRef.current.detune.value = pitchShift * 100;
+        }
       }
     }
 
@@ -202,11 +212,15 @@ export function AudioMixer({ gestureData }: AudioMixerProps) {
       const clampedRotation = Math.max(0, Math.min(360, Math.abs(thumbHand.rotation)));
       const rotationRatio = clampedRotation / 360;
       const newFilterFreq = 100 + (rotationRatio * 9900);
-      setFilterFreq(newFilterFreq);
 
-      if (filterNodeRef.current) {
-        filterNodeRef.current.frequency.setTargetAtTime(newFilterFreq, audioContextRef.current.currentTime, 0.1);
+      if (Math.abs(newFilterFreq - filterFreq) > 50) { 
+        setFilterFreq(newFilterFreq);
+
+        if (filterNodeRef.current) {
+          filterNodeRef.current.frequency.setTargetAtTime(newFilterFreq, audioContextRef.current.currentTime, 0.1);
+        }
       }
+
     }
 
   }, [gestureData, isPlaying]);
@@ -228,6 +242,17 @@ export function AudioMixer({ gestureData }: AudioMixerProps) {
     }
   }, [gestureData.bothHandsPresent]);
 
+  // helper function to calculate exact spot
+  const updateAudioAnchor = () => { 
+    if (isPlayingRef.current && audioContextRef.current) { 
+      const realTimeNow = audioContextRef.current.currentTime;
+      const timePassed = realTimeNow - anchorRealTimeRef.current;
+      const effectiveSpeed = playbackSpeedRef.current * Math.pow(2, pitchRef.current / 12);
+
+      anchorAudioTimeRef.current += (timePassed * effectiveSpeed);
+      anchorRealTimeRef.current = realTimeNow;
+    }
+  };
 
   // SECTION OF CODE FOR FILE UPLOAD
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -247,7 +272,7 @@ export function AudioMixer({ gestureData }: AudioMixerProps) {
       setIsPlaying(false);
       isPlayingRef.current = false;
       setCurrentTime(0);
-      pausedTimeRef.current = 0;
+      // pausedTimeRef.current = 0;
 
       setAudioFile(file);
       const arrayBuffer = await file.arrayBuffer();
@@ -269,9 +294,11 @@ export function AudioMixer({ gestureData }: AudioMixerProps) {
       }
     }
 
-    // SAVE TIME OF PAUSE 
-    if (isPlayingRef.current) { 
-      pausedTimeRef.current = currentTime;
+    // calculate exact audio time of stop
+    if(audioContextRef.current && isPlayingRef.current) { 
+      const realTimeNow = audioContextRef.current.currentTime;
+      const timePassed = realTimeNow - anchorRealTimeRef.current;
+      anchorAudioTimeRef.current += (timePassed * playbackSpeedRef.current);
     }
 
     setIsPlaying(false);
@@ -312,12 +339,12 @@ export function AudioMixer({ gestureData }: AudioMixerProps) {
     source.onended = () => { 
       setIsPlaying(false); 
       isPlayingRef.current = false;
-      pausedTimeRef.current = 0; 
+      anchorAudioTimeRef.current = 0;
       setCurrentTime(0);
     };
 
     // calculate offset
-    let offset = pausedTimeRef.current % audioBufferRef.current.duration;
+    let offset = anchorAudioTimeRef.current % audioBufferRef.current.duration;
     if (isNaN(offset)) offset = 0;
 
     // resume from offset
@@ -330,7 +357,9 @@ export function AudioMixer({ gestureData }: AudioMixerProps) {
 
     // sync visuals 
     // setStartTime(audioContextRef.current.currentTime - offset);
-    setCurrentTime(offset);
+    // setCurrentTime(offset);
+    anchorAudioTimeRef.current = offset;
+    anchorRealTimeRef.current = audioContextRef.current.currentTime;
   };
 
   const togglePlayback = () => { 
@@ -418,22 +447,20 @@ export function AudioMixer({ gestureData }: AudioMixerProps) {
     const updateTime = () => { 
       if (isPlaying && audioContextRef.current) {
         const timeNow = audioContextRef.current.currentTime;
+        const timePassed = timeNow - anchorRealTimeRef.current;
 
         // calculate time passed since last frame
-        const delta = timeNow - lastFrameTimeRef.current;
-        lastFrameTimeRef.current = timeNow;
+        const effectiveSpeed = playbackSpeedRef.current * Math.pow(2, pitchRef.current/12);
+        const exactTime = anchorAudioTimeRef.current + (timePassed * effectiveSpeed);
 
-        // update current time with delta, accounting for playback speed
-        setCurrentTime(prevTime => prevTime + (delta * playbackSpeedRef.current));
+        // update current time accounting for playback speed
+        setCurrentTime(exactTime);
         animationFrameId = requestAnimationFrame(updateTime);
       }
     };
 
     if (isPlaying) { 
       // sync last frame to play
-      if (audioContextRef.current) {
-        lastFrameTimeRef.current = audioContextRef.current.currentTime;
-      }
       animationFrameId = requestAnimationFrame(updateTime);
     }
 
